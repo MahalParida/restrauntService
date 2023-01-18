@@ -1,0 +1,63 @@
+version: "3.9"
+services:
+  go-app:
+    build:
+      context: .
+      dockerfile: ./docker/devapi.Dockerfile
+    ports:
+      - ${PORT}:8080
+    # Important to bind/mount your codebase dir to /app dir for live reload
+    volumes:
+      - ./:/app
+    restart: on-failure:10
+    depends_on:
+      wait-for-db:
+        condition: service_completed_successfully
+  db:
+    build:
+      context: .
+      dockerfile: ./docker/db.Dockerfile
+    networks:
+      - default
+    restart: always
+    ports:
+      - ${MYSQL_PORT}:3306
+    environment:
+      - MYSQL_RANDOM_ROOT_PASSWORD=${MYSQL_RANDOM_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USERNAME}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 3000:8080
+    depends_on:
+      wait-for-db:
+        condition: service_completed_successfully
+    networks:
+      - default
+  migrate:
+    image: migrate/migrate
+    depends_on:
+      wait-for-db:
+        condition: service_completed_successfully
+    volumes:
+      - ./db/migration/:/migration
+    restart: on-failure:10
+    command: 
+      ["-path", "/migration","-database", "mysql://${MYSQL_USERNAME}:${MYSQL_PASSWORD}@tcp(db:3306)/${MYSQL_DATABASE}?query","-verbose", "up"]
+    networks:
+      - default
+  wait-for-db:
+    image: atkrad/wait4x
+    depends_on:
+      - db
+    command: tcp db:3306 -t 30s -i 250ms
+networks:
+  default:
+volumes:
+  mysql_data:
